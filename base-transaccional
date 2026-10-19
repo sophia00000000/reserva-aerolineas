@@ -1,0 +1,136 @@
+-- =========================================================
+-- Esquema transaccional (OLTP) - Sistema de Reservas Aerolínea
+-- Basado en el ERD (reservas_ER-Copia_de_Página-2_drawio.png)
+-- Motor: PostgreSQL / Aurora PostgreSQL
+-- =========================================================
+ 
+-- Entidades base (sin FKs) -------------------------------------------------
+ 
+CREATE TABLE aeropuerto (
+    codigo_aeropuerto  VARCHAR(3) PRIMARY KEY,   -- código IATA
+    nombre             VARCHAR(120) NOT NULL,
+    ciudad             VARCHAR(80) NOT NULL,
+    pais               VARCHAR(80) NOT NULL
+);
+ 
+CREATE TABLE agencia (
+    id_agencia          SERIAL PRIMARY KEY,
+    nombre              VARCHAR(150) NOT NULL,
+    porcentaje_comision NUMERIC(5,2) NOT NULL CHECK (porcentaje_comision >= 0),
+    correo_contacto     VARCHAR(150) NOT NULL
+);
+ 
+CREATE TABLE pasajero (
+    id_pasajero         SERIAL PRIMARY KEY,
+    nombre_completo     VARCHAR(150) NOT NULL,
+    numero_documento    VARCHAR(30) NOT NULL UNIQUE,
+    correo_electronico  VARCHAR(150) NOT NULL,
+    telefono            VARCHAR(30)
+);
+ 
+CREATE TABLE aeronave (
+    id_aeronave       SERIAL PRIMARY KEY,
+    modelo            VARCHAR(80) NOT NULL,
+    fabricante        VARCHAR(80) NOT NULL,
+    capacidad_total   INTEGER NOT NULL CHECK (capacidad_total > 0)
+);
+ 
+-- Vuelo programado (recurrente) e instancia (fecha concreta) ---------------
+ 
+CREATE TABLE vuelo_programado (
+    id_vuelo_programado       SERIAL PRIMARY KEY,
+    numero_vuelo               VARCHAR(10) NOT NULL,
+    codigo_aeropuerto_origen   VARCHAR(3) NOT NULL REFERENCES aeropuerto(codigo_aeropuerto),
+    codigo_aeropuerto_destino  VARCHAR(3) NOT NULL REFERENCES aeropuerto(codigo_aeropuerto),
+    hora_salida_local          TIME NOT NULL,
+    dias_semana                VARCHAR(20) NOT NULL,  -- ej: 'LMXJVSD' o CSV de días
+    CHECK (codigo_aeropuerto_origen <> codigo_aeropuerto_destino)
+);
+ 
+CREATE TABLE instancia_vuelo (
+    id_instancia_vuelo      SERIAL PRIMARY KEY,
+    id_vuelo_programado     INTEGER NOT NULL REFERENCES vuelo_programado(id_vuelo_programado),
+    fecha_vuelo              DATE NOT NULL,
+    id_aeronave               INTEGER NOT NULL REFERENCES aeronave(id_aeronave),
+    estado                    VARCHAR(20) NOT NULL DEFAULT 'programado',
+    fecha_hora_salida_real    TIMESTAMP,
+    UNIQUE (id_vuelo_programado, fecha_vuelo)
+);
+ 
+-- Tarifas e inventario de asientos (por instancia + clase) -----------------
+ 
+CREATE TABLE tarifa (
+    id_tarifa               SERIAL PRIMARY KEY,
+    id_instancia_vuelo      INTEGER NOT NULL REFERENCES instancia_vuelo(id_instancia_vuelo),
+    clase_asiento           VARCHAR(20) NOT NULL,   -- 'economica' | 'ejecutiva'
+    dias_min_antes_salida   INTEGER NOT NULL CHECK (dias_min_antes_salida >= 0),
+    dias_max_antes_salida   INTEGER NOT NULL,
+    precio                  NUMERIC(10,2) NOT NULL CHECK (precio >= 0),
+    moneda                  VARCHAR(3) NOT NULL DEFAULT 'COP',
+    CHECK (dias_max_antes_salida >= dias_min_antes_salida)
+);
+ 
+CREATE TABLE inventario_asientos (
+    id_inventario_asientos  SERIAL PRIMARY KEY,
+    id_instancia_vuelo      INTEGER NOT NULL REFERENCES instancia_vuelo(id_instancia_vuelo),
+    clase_asiento           VARCHAR(20) NOT NULL,
+    asientos_totales        INTEGER NOT NULL CHECK (asientos_totales >= 0),
+    asientos_vendidos       INTEGER NOT NULL DEFAULT 0 CHECK (asientos_vendidos >= 0),
+    version_bloqueo         INTEGER NOT NULL DEFAULT 0,   -- optimistic locking
+    UNIQUE (id_instancia_vuelo, clase_asiento),
+    CHECK (asientos_vendidos <= asientos_totales)
+);
+ 
+-- Reserva, tramos, pago e historial -----------------------------------------
+ 
+CREATE TABLE reserva (
+    id_reserva        SERIAL PRIMARY KEY,
+    id_pasajero       INTEGER NOT NULL REFERENCES pasajero(id_pasajero),
+    tipo_origen       VARCHAR(20) NOT NULL,      -- 'directo' | 'agencia'
+    id_agencia        INTEGER REFERENCES agencia(id_agencia),   -- nulo si es venta directa
+    estado            VARCHAR(20) NOT NULL DEFAULT 'confirmada',
+    fecha_creacion    TIMESTAMP NOT NULL DEFAULT now(),
+    CHECK (
+        (tipo_origen = 'agencia' AND id_agencia IS NOT NULL) OR
+        (tipo_origen = 'directo' AND id_agencia IS NULL)
+    )
+);
+ 
+CREATE TABLE tramo_reserva (
+    id_tramo_reserva   SERIAL PRIMARY KEY,
+    id_reserva         INTEGER NOT NULL REFERENCES reserva(id_reserva) ON DELETE CASCADE,
+    id_instancia_vuelo INTEGER NOT NULL REFERENCES instancia_vuelo(id_instancia_vuelo),
+    id_tarifa          INTEGER NOT NULL REFERENCES tarifa(id_tarifa),
+    clase_asiento      VARCHAR(20) NOT NULL,
+    orden_tramo        INTEGER NOT NULL CHECK (orden_tramo > 0),
+    precio_aplicado    NUMERIC(10,2) NOT NULL CHECK (precio_aplicado >= 0),
+    UNIQUE (id_reserva, orden_tramo)
+);
+ 
+CREATE TABLE pago (
+    id_pago               SERIAL PRIMARY KEY,
+    id_reserva            INTEGER NOT NULL UNIQUE REFERENCES reserva(id_reserva) ON DELETE CASCADE,
+    monto                 NUMERIC(10,2) NOT NULL CHECK (monto >= 0),
+    moneda                 VARCHAR(3) NOT NULL DEFAULT 'COP',
+    metodo_pago            VARCHAR(30) NOT NULL,
+    referencia_proveedor   VARCHAR(100),
+    estado                 VARCHAR(20) NOT NULL DEFAULT 'aprobado',
+    fecha_pago              TIMESTAMP NOT NULL DEFAULT now()
+);
+ 
+CREATE TABLE historial_estado_reserva (
+    id_historial     SERIAL PRIMARY KEY,
+    id_reserva       INTEGER NOT NULL REFERENCES reserva(id_reserva) ON DELETE CASCADE,
+    estado_anterior  VARCHAR(20),
+    estado_nuevo     VARCHAR(20) NOT NULL,
+    fecha_cambio     TIMESTAMP NOT NULL DEFAULT now(),
+    tipo_actor       VARCHAR(20) NOT NULL,   -- 'pasajero' | 'agencia' | 'sistema'
+    id_actor         INTEGER
+);
+ 
+-- Índices de apoyo para las búsquedas más frecuentes ------------------------
+ 
+CREATE INDEX idx_instancia_vuelo_fecha ON instancia_vuelo(fecha_vuelo);
+CREATE INDEX idx_vuelo_programado_ruta ON vuelo_programado(codigo_aeropuerto_origen, codigo_aeropuerto_destino);
+CREATE INDEX idx_tramo_reserva_instancia ON tramo_reserva(id_instancia_vuelo);
+CREATE INDEX idx_reserva_pasajero ON reserva(id_pasajero);

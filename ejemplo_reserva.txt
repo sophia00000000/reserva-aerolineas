@@ -1,0 +1,14 @@
+{
+  "id_pasajero": 2,
+  "tipo_origen": "agencia",
+  "id_agencia": 1,
+  "metodo_pago": "tarjeta_credito",
+  "tramos": [
+    {
+      "id_instancia_vuelo": 1,
+      "id_tarifa": 2,
+      "clase_asiento": "ejecutiva",
+      "orden_tramo": 1
+    }
+  ]
+}

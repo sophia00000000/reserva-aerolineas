@@ -1,0 +1,192 @@
+JUSTIFICACIÓN DEL MODELO ENTIDAD-RELACIÓN
+Sistema de Reservas de Aerolínea — Parcial 1 (Big Data y Data Engineering)
+============================================================================
+
+0. NOTACIÓN Y FORMATO
+----------------------
+- Notación: Crow's Foot (pata de cuervo), consistente en todo el diagrama.
+- Archivo: reservas_ER.drawio. Cada entidad es una tabla con su nombre como
+  encabezado y sus atributos como filas; PK y FK están marcados explícitamente
+  en el texto de cada fila.
+- Símbolos usados en las relaciones:
+    ERone      = "uno y solo uno" del lado padre (obligatorio)
+    ERmany     = "muchos" (pata de cuervo) del lado hijo
+    ERzeroToOne = "cero o uno" (relación opcional)
+    ERmandOne  = "uno y solo uno" obligatorio en ambos extremos (1:1)
+
+1. CRITERIO DE ORGANIZACIÓN DEL DIAGRAMA
+------------------------------------------
+El lienzo se organizó en 3 franjas horizontales que reflejan el ciclo de vida
+de la información, de arriba hacia abajo:
+
+  Fila 1 (datos de catálogo/operación aérea):
+     AIRPORT, AIRCRAFT, SCHEDULED_FLIGHT, FLIGHT_INSTANCE
+  Fila 2 (inventario, precio y clientes — lo que se "vende"):
+     SEAT_INVENTORY, FARE, PASSENGER, AGENCY
+  Fila 3 (la transacción de negocio y su trazabilidad):
+     RESERVATION, RESERVATION_LEG, PAYMENT, RESERVATION_STATUS_HISTORY
+
+Esto no es solo estético: separa visualmente el dominio "oferta" (vuelos,
+aviones, tarifas) del dominio "demanda" (pasajeros, reservas, pagos), que es
+justamente la frontera de concurrencia que va a resolverse en la sección 5.4
+(SEAT_INVENTORY es el recurso que se bloquea/versiona en cada intento de
+reserva).
+
+2. DECISIONES DE MODELADO Y SU TRAZABILIDAD A LOS REQUISITOS
+---------------------------------------------------------------
+
+2.1 Vuelo recurrente vs. instancia concreta (SCHEDULED_FLIGHT / FLIGHT_INSTANCE)
+   Se separaron dos entidades en vez de una sola "Flight":
+   - SCHEDULED_FLIGHT: la plantilla que se repite (número de vuelo, ruta,
+     hora local, días de la semana).
+   - FLIGHT_INSTANCE: la ejecución de esa plantilla en una fecha concreta,
+     con su propio avión asignado y estado operativo.
+   Justificación: el enunciado (sección 5.3) pregunta explícitamente "¿hay
+   una entidad 'vuelo programado' distinta de una 'instancia de vuelo en una
+   fecha específica'?". Si se modelara una sola entidad, cambiar el avión de
+   un día puntual o registrar un retraso contaminaría la definición general
+   del vuelo. Además, el inventario de asientos y las tarifas deben vivir por
+   fecha (un mismo vuelo puede tener distinta disponibilidad y precio cada
+   día), lo cual solo es posible si existe FLIGHT_INSTANCE como entidad
+   independiente.
+   No se fijó un avión por defecto en SCHEDULED_FLIGHT: la asignación de
+   aeronave es una decisión operativa que se toma por fecha (FLIGHT_INSTANCE
+   → AIRCRAFT), evitando forzar un dato que en la práctica cambia.
+
+2.2 Itinerario multi-tramo (RESERVATION_LEG)
+   RF3 exige reservar un itinerario de varios tramos en una sola transacción.
+   Una relación directa Reservation–FlightInstance sería muchos-a-muchos y no
+   permitiría, por ejemplo, guardar el orden de los tramos, la tarifa
+   específica aplicada a cada tramo, o la clase de asiento comprada en cada
+   uno (un pasajero podría ir en economy en el primer tramo y en otra tarifa
+   en la conexión). Por eso se introdujo RESERVATION_LEG como entidad
+   asociativa (débil) entre RESERVATION, FLIGHT_INSTANCE y FARE, con el campo
+   leg_sequence para reconstruir el orden del itinerario. Esta es también la
+   entidad correcta para validar, tramo por tramo, contra SEAT_INVENTORY que
+   no se venda más de lo disponible (RF6), ya que cada tramo consume cupo de
+   un vuelo distinto.
+   Se decidió: "una reserva = un registro RESERVATION con N filas en
+   RESERVATION_LEG", en vez de reservas encadenadas independientes, porque
+   así el pago (atómico, RF2) y la cancelación (solo total, ver supuestos)
+   se aplican de una sola vez sobre toda la reserva, no vuelo por vuelo.
+
+2.3 Control de inventario y prevención de overselling (SEAT_INVENTORY)
+   RF6 y el RNF de Consistencia/Concurrencia exigen que ante dos solicitudes
+   simultáneas por el último asiento, exactamente una se confirme y la otra
+   se rechace explícitamente. Para que eso sea implementable, el conteo de
+   asientos disponibles NO puede vivir "implícito" (contando filas de
+   RESERVATION_LEG cada vez), porque eso obliga a escanear/bloquear tablas
+   grandes. Se modeló SEAT_INVENTORY como una entidad propia con
+   (total_seats, seats_sold, version_lock) por cada (FLIGHT_INSTANCE,
+   seat_class): es un contador pequeño y de alta contención, exactamente el
+   registro que se debe bloquear (locking pesimista) o versionar (locking
+   optimista con reintentos) en la sección 5.4. El campo version_lock ya
+   queda declarado en el modelo para soportar directamente esa decisión sin
+   tener que rediseñar el esquema en la siguiente entrega.
+   Nota de alcance: no se modela un asiento físico individual (Seat 12A,
+   12B...) porque, según los supuestos ya definidos, el check-in y la
+   asignación de asiento específico quedan fuera de alcance del MVP; el
+   control se hace por cupo agregado dentro de cada clase de asiento
+   (seat_class), que es el nivel al que efectivamente se vende el producto.
+
+2.4 Tarifas (FARE)
+   FARE está atada a FLIGHT_INSTANCE (no a SCHEDULED_FLIGHT) y a un rango de
+   antelación de compra (min/max_days_before_departure) y clase de asiento,
+   siguiendo el RF de que el precio depende de cuán anticipada es la compra y
+   del tipo de asiento. Esto también resuelve la pregunta de 5.3 sobre "¿el
+   precio es del vuelo o de la reserva?": el precio se fija en el catálogo de
+   tarifas por instancia de vuelo, y RESERVATION_LEG solo copia el
+   price_applied al momento de la compra (para no alterar retroactivamente
+   el monto ya cobrado si la tarifa cambia después).
+
+2.5 Origen de la reserva: pasajero directo vs. agencia (PASSENGER / AGENCY)
+   Según el documento de trabajo previo, pasajeros y agentes de agencia usan
+   el mismo flujo/API, pero el modelo de datos debe distinguir quién originó
+   la reserva. Se resolvió con:
+   - RESERVATION.passenger_id (obligatorio): siempre existe un pasajero
+     titular, sea cual sea el canal de venta.
+   - RESERVATION.agency_id (opcional) + origin_type: identifica si la venta
+     fue directa o a través de una agencia asociada.
+   Se descartó modelar un actor "Agente" individual como entidad separada en
+   esta primera versión (no hay requisito que lo exija todavía); se dejó la
+   puerta abierta para agregarlo después sin romper el esquema, ya que
+   bastaría con insertar una FK adicional en RESERVATION apuntando a un
+   futuro AGENT sin tocar el resto del modelo. Esto evita sobre-modelar un
+   actor (agente de aeropuerto, administrador) que los supuestos del equipo
+   declararon explícitamente fuera de alcance.
+   La relación AGENCY–RESERVATION es la única marcada como opcional
+   (ERzeroToOne / ERmany) en todo el diagrama, precisamente porque es la
+   única cardinalidad realmente condicional del modelo.
+
+2.6 Pago atómico (PAYMENT, relación 1:1 obligatoria)
+   Los supuestos ya fijados indican que no existe retención temporal de
+   asiento sin pago confirmado (RF2: creación de reserva y pago como una
+   única operación atómica). Por eso PAYMENT es 1:1 obligatorio con
+   RESERVATION (ERmandOne en ambos extremos) y no una relación opcional o
+   1:N: no puede existir una reserva sin su pago asociado, ni un pago sin
+   una reserva. A nivel de implementación (5.6), esto implica que ambas filas
+   se crean dentro de la misma transacción de base de datos.
+
+2.7 Auditoría e historial (RESERVATION_STATUS_HISTORY)
+   El RNF de Auditabilidad exige poder reconstruir el historial completo de
+   cambios de una reserva (creación, pago, cancelación) con timestamp y
+   actor responsable, de forma inmutable. Se modeló como una entidad de solo
+   inserción (append-only): cada fila representa una transición de estado
+   (previous_status → new_status) y no se actualiza ni se borra nunca. Esto
+   es deliberadamente distinto de "guardar el estado actual en RESERVATION y
+   ya": si solo existiera el campo status en RESERVATION, cualquier
+   actualización destruiría la evidencia del estado anterior, incumpliendo
+   directamente el requisito de auditoría.
+   Como los supuestos ya excluyen modificaciones a una reserva (solo se
+   permite cancelar), el historial en la práctica va a tener pocos estados
+   posibles (creada → pagada → [cancelada]), lo cual simplifica bastante la
+   máquina de estados sin sacrificar trazabilidad.
+
+3. NIVEL DE NORMALIZACIÓN
+---------------------------
+El modelo transaccional se dejó en 3FN: no hay atributos derivados
+almacenados (p. ej. el total de la reserva no se guarda en RESERVATION, se
+calcula sumando price_applied de sus RESERVATION_LEG; la disponibilidad no se
+duplica en FLIGHT_INSTANCE sino que vive solo en SEAT_INVENTORY). Esto es
+intencional porque este mismo modelo alimentará el pipeline de Big Data de la
+sección 5.7: mantenerlo normalizado en el lado OLTP evita anomalías de
+actualización en el sistema transaccional, mientras que la denormalización u
+otro modelo (por ejemplo, un esquema en estrella con hechos de ocupación,
+ingresos y cancelaciones) se reserva para la base analítica (OLAP) que se
+construye después vía ETL — que es justamente donde el enunciado espera que
+se justifique un modelo distinto al transaccional.
+
+4. RESUMEN DE ENTIDADES Y SU FUNCIÓN
+----------------------------------------
+AIRPORT                     Catálogo de aeropuertos (origen/destino).
+AIRCRAFT                    Catálogo de aeronaves y su capacidad total.
+SCHEDULED_FLIGHT            Plantilla de vuelo recurrente (ruta + horario).
+FLIGHT_INSTANCE             Ejecución de un vuelo en una fecha concreta.
+SEAT_INVENTORY              Cupo disponible por vuelo/clase; punto de
+                             control de concurrencia contra overselling.
+FARE                        Precio por vuelo, clase y ventana de antelación.
+PASSENGER                   Titular del viaje (siempre existe en la reserva).
+AGENCY                      Agencia asociada que puede originar una venta.
+RESERVATION                 La reserva en sí: quién la origina y su estado.
+RESERVATION_LEG             Cada tramo del itinerario de una reserva, con
+                             su tarifa y orden.
+PAYMENT                     Pago, atómico y 1:1 con la reserva.
+RESERVATION_STATUS_HISTORY  Bitácora inmutable de cambios de estado.
+
+5. LIMITACIONES / SUPUESTOS QUE EL MODELO ASUME (heredados del documento
+   "mi trabajo hasta ahora")
+----------------------------------------------------------------------------
+- No hay asignación de asiento físico ni check-in: el control es por clase
+  agregada, no por asiento individual.
+- No hay programa de viajero frecuente ni modificación de reservas (solo
+  cancelación total): por eso no existe una entidad de cambios/enmiendas,
+  solo cancelación reflejada como un nuevo estado en el historial.
+- Una sola moneda e idioma: currency se deja como atributo (no como entidad
+  de catálogo) porque no hay conversión multi-moneda que modelar en esta
+  versión.
+- El equipaje se asume fijo por tarifa (no configurable por reserva), por lo
+  que no se creó una entidad Baggage independiente.
+
+Cualquiera de estos supuestos puede evolucionar en una futura iteración sin
+romper el núcleo del modelo (FLIGHT_INSTANCE, SEAT_INVENTORY, RESERVATION,
+RESERVATION_LEG), que es donde se concentra la complejidad real del negocio.

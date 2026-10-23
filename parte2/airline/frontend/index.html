@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reserva tu vuelo</title><style>
+:root{--bg:#f4f7fb;--card:#fff;--text:#14213d;--muted:#5c6b82;--primary:#1d4ed8;--onp:#fff;--ok:#15803d;--err:#b91c1c;--warn:#b45309;--line:#dbe3ef;--soft:#eef3fb}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#131c30;--text:#e6ecf8;--muted:#93a3bf;--primary:#6f9bff;--onp:#0b1220;--ok:#4ade80;--err:#f87171;--warn:#fbbf24;--line:#24314d;--soft:#1a2540}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.45}
+header{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:1rem 0 1.4rem}
+.wrap{max-width:880px;margin:0 auto;padding:0 1rem}
+.top{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.brand{font-weight:700;font-size:1.15rem;letter-spacing:.3px}
+nav a{color:#fff;text-decoration:none;opacity:.8;margin-left:1rem;padding:.25rem 0;border-bottom:2px solid transparent}
+nav a.on,nav a:hover{opacity:1;border-color:#fff}
+header h1{margin:1rem 0 .2rem;font-size:1.7rem}header p{margin:0;opacity:.85}
+main{margin-top:-.8rem;padding-bottom:3rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.1rem;margin:1rem 0;box-shadow:0 2px 10px rgba(15,30,70,.07)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;align-items:end}
+label{display:block;font-size:.8rem;font-weight:600;color:var(--muted);margin-bottom:.25rem}
+input,select{width:100%;padding:.65rem .7rem;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);font-size:1rem}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+button{cursor:pointer;border:0;border-radius:9px;padding:.7rem 1.1rem;font-size:1rem;font-weight:600;background:var(--primary);color:var(--onp)}
+button:disabled{opacity:.6;cursor:wait}button.ghost{background:var(--soft);color:var(--text)}
+.steps{display:flex;gap:.5rem;margin:.2rem 0 0;font-size:.85rem;flex-wrap:wrap}
+.steps span{padding:.2rem .7rem;border-radius:99px;background:rgba(255,255,255,.18);color:#fff}
+.steps span.on{background:#fff;color:#1e3a8a;font-weight:700}
+.msg{min-height:1.4rem;margin:.6rem 0 0;color:var(--muted)}.msg.err{color:var(--err)}.msg.ok{color:var(--ok)}
+.flight{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.route{font-size:1.25rem;font-weight:700}.meta{color:var(--muted);font-size:.85rem}
+.badge{display:inline-block;padding:.15rem .6rem;border-radius:99px;font-size:.78rem;font-weight:600;background:var(--soft)}
+.badge.low{color:var(--warn)}.price{font-size:1.3rem;font-weight:700;text-align:right}
+.ticket{border:2px dashed var(--ok)}.ticket .code{font-family:ui-monospace,Consolas,monospace;font-size:1.2rem;word-break:break-all}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:1rem;text-align:center}
+.kpis b{display:block;font-size:1.4rem}.kpis small{color:var(--muted)}
+.big{font-size:3.6rem;font-weight:800;line-height:1}
+.bar{height:14px;background:var(--soft);border-radius:99px;overflow:hidden;margin-top:.8rem}
+.bar i{display:block;height:100%;width:0;border-radius:99px;background:var(--primary);transition:width .5s}
+[hidden]{display:none!important}
+footer{text-align:center;color:var(--muted);font-size:.8rem;padding-bottom:2rem}
+</style></head><body>
+<header><div class="wrap"><div class="top"><div class="brand">✈ Aeronaves</div>
+<nav><a href="/" class="on">Reservas</a><a href="/manager" class="">Panel gerencial</a></nav></div>
+<h1>Reserva tu vuelo</h1><p>Busca por origen, destino y fecha, y confirma en segundos.</p><div class="steps"><span id="s1" class="on">1 · Buscar</span><span id="s2">2 · Elegir</span><span id="s3">3 · Confirmar</span></div></div></header><main class="wrap">
+
+<section class="card"><div class="grid">
+ <div><label>Origen</label><input data-testid="search-origin" placeholder="BOG" maxlength="3" list="ap" style="text-transform:uppercase"></div>
+ <div><label>Destino</label><input data-testid="search-destination" placeholder="MDE" maxlength="3" list="ap" style="text-transform:uppercase"></div>
+ <div><label>Fecha</label><input data-testid="search-date" placeholder="AAAA-MM-DD"></div>
+ <div><button data-testid="search-submit" style="width:100%">Buscar vuelos</button></div>
+</div><p id="msg" class="msg" role="status"></p></section>
+<datalist id="ap"><option value="BOG"><option value="MDE"><option value="CLO"><option value="CTG"><option value="BAQ"><option value="SMR"><option value="BGA"><option value="PEI"><option value="CUC"><option value="ADZ"><option value="LET"><option value="PSO"></datalist>
+<div id="results"></div>
+<section id="booking" class="card" hidden>
+ <h3 style="margin-top:0">Datos del pasajero</h3><p id="summary" class="meta"></p>
+ <div class="grid">
+  <div><label>Nombre completo</label><input data-testid="passenger-name" placeholder="Ana Gómez"></div>
+  <div><label>Clase</label><select id="fare"><option value="ECONOMY">Económica</option><option value="BUSINESS">Business</option></select></div>
+  <div><button data-testid="confirm-submit" style="width:100%">Confirmar reserva</button></div>
+ </div><p id="bmsg" class="msg" role="status"></p>
+</section>
+<section id="conf" class="card ticket" hidden>
+ <h3 style="margin-top:0;color:var(--ok)">✔ ¡Reserva confirmada!</h3>
+ <div class="meta">Código de reserva</div><div class="code"><b data-testid="confirmation-id"></b></div>
+ <p id="detail" class="meta"></p><button class="ghost" id="again">Hacer otra reserva</button>
+</section>
+<script>
+const $=s=>document.querySelector(s), tid=t=>$(`[data-testid="${t}"]`);
+const money=c=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(c/100);
+let selected=null;
+function step(n){[1,2,3].forEach(i=>$('#s'+i).classList.toggle('on',i===n));}
+function say(id,t,k){const m=$(id);m.textContent=t;m.className='msg'+(k?' '+k:'');}
+async function search(){
+  const o=tid('search-origin').value.trim(),d=tid('search-destination').value.trim(),f=tid('search-date').value.trim();
+  $('#results').replaceChildren();$('#booking').hidden=true;$('#conf').hidden=true;selected=null;step(1);
+  if(!o||!d||!f)return say('#msg','Completa origen, destino y fecha.','err');
+  const btn=tid('search-submit');btn.disabled=true;say('#msg','Buscando vuelos…');
+  try{
+    const r=await fetch('/flights/search?'+new URLSearchParams({origin:o,destination:d,date:f}));
+    if(r.status===422)return say('#msg','Revisa los datos: la fecha debe ser AAAA-MM-DD.','err');
+    if(!r.ok)return say('#msg','No se pudo buscar. Intenta de nuevo.','err');
+    const list=await r.json();
+    if(!list.length)return say('#msg','No hay vuelos disponibles para esa búsqueda.','err');
+    say('#msg',list.length+(list.length===1?' vuelo disponible':' vuelos disponibles'),'ok');step(2);
+    for(const v of list){
+      const c=document.createElement('div');c.className='card flight';c.setAttribute('data-testid','flight-row');
+      const l=document.createElement('div');
+      const rt=document.createElement('div');rt.className='route';rt.textContent=v.route.replace('-',' → ');
+      const mt=document.createElement('div');mt.className='meta';mt.textContent=v.flight_date+' · vuelo '+v.flight_id;
+      const bd=document.createElement('span');bd.className='badge'+(v.seats_available<=5?' low':'');
+      bd.textContent=v.seats_available<=5?'¡Últimos '+v.seats_available+' asientos!':v.seats_available+' asientos libres';
+      l.append(rt,mt,bd);
+      const r2=document.createElement('div');
+      const pr=document.createElement('div');pr.className='price';pr.textContent=money(v.price_cents);
+      const b=document.createElement('button');b.setAttribute('data-testid','reserve-button');b.textContent='Reservar';
+      b.onclick=()=>{selected=v;$('#summary').textContent=v.route.replace('-',' → ')+' · '+v.flight_date+' · '+money(v.price_cents);
+        say('#bmsg','');$('#conf').hidden=true;$('#booking').hidden=false;step(3);tid('passenger-name').focus();$('#booking').scrollIntoView({behavior:'smooth',block:'center'});};
+      r2.append(pr,b);c.append(l,r2);$('#results').append(c);
+    }
+  }catch(e){say('#msg','Error de conexión con el servidor.','err');}
+  finally{btn.disabled=false;}
+}
+async function confirmBooking(){
+  const name=tid('passenger-name').value.trim();
+  if(!selected)return say('#bmsg','Primero elige un vuelo.','err');
+  if(!name)return say('#bmsg','Escribe el nombre del pasajero.','err');
+  const btn=tid('confirm-submit');btn.disabled=true;say('#bmsg','Procesando reserva…');
+  try{
+    const r=await fetch('/reservations',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({flight_id:selected.flight_id,passenger_name:name,fare_class:$('#fare').value})});
+    if(r.status===409)return say('#bmsg','Lo sentimos: ese vuelo se agotó. Busca otra opción.','err');
+    if(r.status===404)return say('#bmsg','El vuelo ya no existe.','err');
+    if(!r.ok)return say('#bmsg','No se pudo reservar. Intenta de nuevo.','err');
+    const b=await r.json();
+    tid('confirmation-id').textContent=b.reservation_id;
+    $('#detail').textContent=b.passenger_name+' · '+selected.route.replace('-',' → ')+' · '+selected.flight_date+' · '+$('#fare').selectedOptions[0].text;
+    $('#booking').hidden=true;$('#results').replaceChildren();$('#conf').hidden=false;say('#msg','');
+    $('#conf').scrollIntoView({behavior:'smooth',block:'center'});
+  }catch(e){say('#bmsg','Error de conexión con el servidor.','err');}
+  finally{btn.disabled=false;}
+}
+tid('search-submit').onclick=search;tid('confirm-submit').onclick=confirmBooking;
+['search-origin','search-destination','search-date'].forEach(t=>tid(t).addEventListener('keydown',e=>{if(e.key==='Enter')search();}));
+tid('passenger-name').addEventListener('keydown',e=>{if(e.key==='Enter')confirmBooking();});
+$('#again').onclick=()=>{$('#conf').hidden=true;tid('confirmation-id').textContent='';tid('passenger-name').value='';step(1);window.scrollTo({top:0,behavior:'smooth'});};
+</script></main><footer>Aeronaves · Proyecto Big Data y Data Engineering</footer></body></html>

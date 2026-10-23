@@ -1,0 +1,9 @@
+assumptions: "Demo academica: ~50 usuarios/dia, <1000 requests/dia, 2M filas CSV (~250 MB raw, ~60 MB Parquet), 1 corrida EMR al mes (2 x m4.large, 0.5 h), ~500 consultas Athena/mes sobre 1 archivo pequeno. Una sola EC2 encendida 24/7 con PostgreSQL local."
+line_items:
+  - {service: "EC2", detail: "1 x t3.small (backend + frontend + PostgreSQL), on-demand 730 h", monthly_usd: 15.2}
+  - {service: "EBS", detail: "10 GB gp3 del volumen raiz", monthly_usd: 0.8}
+  - {service: "VPC", detail: "1 Elastic IP / IPv4 publica", monthly_usd: 3.65}
+  - {service: "S3", detail: "~0.5 GB raw+curated+resultados Athena, pocos requests", monthly_usd: 0.3}
+  - {service: "Athena", detail: "~500 consultas/mes, 10 MB minimo por consulta (~5 GB)", monthly_usd: 0.1}
+  - {service: "EMR", detail: "1 corrida/mes, 2 x m4.large, 0.5 h (EC2 + recargo EMR)", monthly_usd: 0.3}
+  - {service: "Glue", detail: "Data Catalog, 2 tablas (dentro del free tier)", monthly_usd: 0.0}

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panel gerencial</title><style>
+:root{--bg:#f4f7fb;--card:#fff;--text:#14213d;--muted:#5c6b82;--primary:#1d4ed8;--onp:#fff;--ok:#15803d;--err:#b91c1c;--warn:#b45309;--line:#dbe3ef;--soft:#eef3fb}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#131c30;--text:#e6ecf8;--muted:#93a3bf;--primary:#6f9bff;--onp:#0b1220;--ok:#4ade80;--err:#f87171;--warn:#fbbf24;--line:#24314d;--soft:#1a2540}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.45}
+header{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:1rem 0 1.4rem}
+.wrap{max-width:880px;margin:0 auto;padding:0 1rem}
+.top{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.brand{font-weight:700;font-size:1.15rem;letter-spacing:.3px}
+nav a{color:#fff;text-decoration:none;opacity:.8;margin-left:1rem;padding:.25rem 0;border-bottom:2px solid transparent}
+nav a.on,nav a:hover{opacity:1;border-color:#fff}
+header h1{margin:1rem 0 .2rem;font-size:1.7rem}header p{margin:0;opacity:.85}
+main{margin-top:-.8rem;padding-bottom:3rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.1rem;margin:1rem 0;box-shadow:0 2px 10px rgba(15,30,70,.07)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;align-items:end}
+label{display:block;font-size:.8rem;font-weight:600;color:var(--muted);margin-bottom:.25rem}
+input,select{width:100%;padding:.65rem .7rem;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);font-size:1rem}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+button{cursor:pointer;border:0;border-radius:9px;padding:.7rem 1.1rem;font-size:1rem;font-weight:600;background:var(--primary);color:var(--onp)}
+button:disabled{opacity:.6;cursor:wait}button.ghost{background:var(--soft);color:var(--text)}
+.steps{display:flex;gap:.5rem;margin:.2rem 0 0;font-size:.85rem;flex-wrap:wrap}
+.steps span{padding:.2rem .7rem;border-radius:99px;background:rgba(255,255,255,.18);color:#fff}
+.steps span.on{background:#fff;color:#1e3a8a;font-weight:700}
+.msg{min-height:1.4rem;margin:.6rem 0 0;color:var(--muted)}.msg.err{color:var(--err)}.msg.ok{color:var(--ok)}
+.flight{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.route{font-size:1.25rem;font-weight:700}.meta{color:var(--muted);font-size:.85rem}
+.badge{display:inline-block;padding:.15rem .6rem;border-radius:99px;font-size:.78rem;font-weight:600;background:var(--soft)}
+.badge.low{color:var(--warn)}.price{font-size:1.3rem;font-weight:700;text-align:right}
+.ticket{border:2px dashed var(--ok)}.ticket .code{font-family:ui-monospace,Consolas,monospace;font-size:1.2rem;word-break:break-all}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:1rem;text-align:center}
+.kpis b{display:block;font-size:1.4rem}.kpis small{color:var(--muted)}
+.big{font-size:3.6rem;font-weight:800;line-height:1}
+.bar{height:14px;background:var(--soft);border-radius:99px;overflow:hidden;margin-top:.8rem}
+.bar i{display:block;height:100%;width:0;border-radius:99px;background:var(--primary);transition:width .5s}
+[hidden]{display:none!important}
+footer{text-align:center;color:var(--muted);font-size:.8rem;padding-bottom:2rem}
+</style></head><body>
+<header><div class="wrap"><div class="top"><div class="brand">✈ Aeronaves</div>
+<nav><a href="/" class="">Reservas</a><a href="/manager" class="on">Panel gerencial</a></nav></div>
+<h1>Panel gerencial</h1><p>¿Qué rutas llenan sus aviones? Consulta la ocupación por ruta y mes.</p></div></header><main class="wrap">
+
+<section class="card"><div class="grid">
+ <div><label>Ruta</label><input data-testid="manager-route" placeholder="BOG-MDE" style="text-transform:uppercase"></div>
+ <div><label>Mes</label><input data-testid="manager-month" placeholder="2023-05" maxlength="7"></div>
+ <div><button data-testid="manager-load" style="width:100%">Consultar ocupación</button></div>
+</div><p id="msg" class="msg" role="status"></p></section>
+<section id="res" class="card" hidden>
+ <div class="meta" id="title"></div>
+ <div class="big" data-testid="occupancy-value"></div>
+ <div class="bar"><i id="fill"></i></div>
+ <div class="kpis"><div><b id="sold"></b><small>Asientos vendidos</small></div><div><b id="cap"></b><small>Capacidad total</small></div><div><b id="free"></b><small>Asientos libres</small></div></div>
+ <p class="meta" id="src" style="margin-bottom:0"></p>
+</section>
+<script>
+const $=s=>document.querySelector(s), tid=t=>$(`[data-testid="${t}"]`);
+const nf=n=>new Intl.NumberFormat('es-CO').format(n);
+function say(t,k){const m=$('#msg');m.textContent=t;m.className='msg'+(k?' '+k:'');}
+async function load(){
+  const route=tid('manager-route').value.trim(),month=tid('manager-month').value.trim();
+  $('#res').hidden=true;tid('occupancy-value').textContent='';
+  if(!route||!month)return say('Escribe la ruta (BOG-MDE) y el mes (AAAA-MM).','err');
+  const btn=tid('manager-load');btn.disabled=true;say('Consultando Athena… puede tardar unos segundos.');
+  const t0=performance.now();
+  try{
+    const r=await fetch('/analytics/occupancy?'+new URLSearchParams({route,month}));
+    if(r.status===404)return say('No hay datos para esa ruta y mes.','err');
+    if(r.status===400)return say('Formato no válido. Ejemplo: BOG-MDE y 2023-05.','err');
+    if(!r.ok)return say('No se pudo consultar Athena. Intenta de nuevo.','err');
+    const d=await r.json(),pct=d.occupancy*100;
+    $('#title').textContent='Ruta '+d.route.replace('-',' → ')+' · '+d.month;
+    $('#sold').textContent=nf(d.seats_sold);$('#cap').textContent=nf(d.seats_capacity);$('#free').textContent=nf(d.seats_capacity-d.seats_sold);
+    const col=pct>=80?'var(--ok)':pct>=60?'var(--warn)':'var(--err)';
+    const v=tid('occupancy-value');v.style.color=col;v.textContent=pct.toFixed(2)+'%';
+    $('#fill').style.background=col;$('#fill').style.width=Math.min(pct,100)+'%';
+    $('#src').textContent='Calculado desde Athena en '+((performance.now()-t0)/1000).toFixed(1)+' s · verde ≥ 80 %, ámbar 60–80 %, rojo < 60 %';
+    $('#res').hidden=false;say('');
+  }catch(e){say('Error de conexión con el servidor.','err');}
+  finally{btn.disabled=false;}
+}
+tid('manager-load').onclick=load;
+['manager-route','manager-month'].forEach(t=>tid(t).addEventListener('keydown',e=>{if(e.key==='Enter')load();}));
+</script></main><footer>Aeronaves · Proyecto Big Data y Data Engineering</footer></body></html>
